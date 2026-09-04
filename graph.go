@@ -101,7 +101,6 @@ func (g *Graph) MatchTarget(target string, moduleOnly bool) []ModuleID {
 // FindMainNode returns the main module's ModuleID as it appears in the graph (usually without @version).
 func (g *Graph) FindMainNode() ModuleID {
 	main := string(g.Main)
-	// Prefer exact path-only node
 	if _, ok := g.Nodes[ModuleID(main)]; ok {
 		return ModuleID(main)
 	}
@@ -114,7 +113,6 @@ func (g *Graph) FindMainNode() ModuleID {
 }
 
 // FindPaths finds up to maxPaths distinct simple paths from main to any target hit.
-// Paths are sequences of ModuleIDs from root to leaf.
 func (g *Graph) FindPaths(targets []ModuleID, maxPaths int) [][]ModuleID {
 	if maxPaths <= 0 || len(targets) == 0 {
 		return nil
@@ -125,24 +123,34 @@ func (g *Graph) FindPaths(targets []ModuleID, maxPaths int) [][]ModuleID {
 	}
 	root := g.FindMainNode()
 	var results [][]ModuleID
+
+	// Main module is itself the target.
+	if _, hit := targetSet[root]; hit {
+		results = append(results, []ModuleID{root})
+		if len(results) >= maxPaths {
+			return results
+		}
+	}
+
 	var dfs func(cur ModuleID, trail []ModuleID, visited map[ModuleID]struct{})
 	dfs = func(cur ModuleID, trail []ModuleID, visited map[ModuleID]struct{}) {
 		if len(results) >= maxPaths {
-			return
-		}
-		if _, hit := targetSet[cur]; hit && len(trail) > 0 {
-			// Copy path
-			p := make([]ModuleID, len(trail))
-			copy(p, trail)
-			results = append(results, p)
 			return
 		}
 		for _, next := range g.Out[cur] {
 			if _, seen := visited[next]; seen {
 				continue
 			}
+			nextTrail := append(append([]ModuleID{}, trail...), next)
+			if _, hit := targetSet[next]; hit {
+				results = append(results, nextTrail)
+				if len(results) >= maxPaths {
+					return
+				}
+				continue // do not walk past a matched target
+			}
 			visited[next] = struct{}{}
-			dfs(next, append(trail, next), visited)
+			dfs(next, nextTrail, visited)
 			delete(visited, next)
 			if len(results) >= maxPaths {
 				return
@@ -150,13 +158,6 @@ func (g *Graph) FindPaths(targets []ModuleID, maxPaths int) [][]ModuleID {
 		}
 	}
 	visited := map[ModuleID]struct{}{root: {}}
-	// If root itself is a target (unusual), report single-node path
-	if _, hit := targetSet[root]; hit {
-		results = append(results, []ModuleID{root})
-		if len(results) >= maxPaths {
-			return results
-		}
-	}
 	dfs(root, []ModuleID{root}, visited)
 	return results
 }
